@@ -13,9 +13,9 @@ class VideoCallApp extends StatelessWidget {
   VideoCallApp({super.key});
 
   // signalling server url
-  final String websocketUrl = "https://call-wbrtc-server.onrender.com";
+  final String websocketUrl = "wss://call-wbrtc-server.onrender.com";
 
-  // generate callerID of local user
+  // generate callerID of local userconst String serverUrl = "wss://your-render-app.onrender.com";
   final String selfCallerID =
       Random().nextInt(999999).toString().padLeft(6, '0');
 
