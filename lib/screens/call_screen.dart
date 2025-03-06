@@ -140,9 +140,16 @@ class _CallScreenState extends State<CallScreen> {
     // for Outgoing Call
     else {
       // listen for local iceCandidate and add it to the list of IceCandidate
-      _rtcPeerConnection!.onIceCandidate =
-          (RTCIceCandidate candidate) => rtcIceCadidates.add(candidate);
-
+      _rtcPeerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+        rtcIceCadidates.add(candidate);
+        print("📡 ICE Candidate: ${candidate.candidate}");
+      };
+      _rtcPeerConnection!.onConnectionState = (RTCPeerConnectionState state) {
+        print("🔄 Trạng thái kết nối: $state");
+      };
+      _rtcPeerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
+        print("🌍 Trạng thái ICE: $state");
+      };
       // when call is accepted by remote peer
       socket!.on("callAnswered", (data) async {
         // set SDP answer as remoteDescription for peerConnection
