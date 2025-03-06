@@ -16,6 +16,14 @@
 	<string>test_call_video</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<key>NSCameraUsageDescription</key>
+<string>Ứng dụng cần quyền truy cập vào camera để chụp ảnh và quay video.</string>
+
+<key>NSMicrophoneUsageDescription</key>
+<string>Ứng dụng cần quyền truy cập vào micro để ghi âm.</string>
+
+<key>NSBluetoothAlwaysUsageDescription</key>
+<string>Ứng dụng cần quyền truy cập Bluetooth để kết nối với thiết bị ngoại vi.</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
