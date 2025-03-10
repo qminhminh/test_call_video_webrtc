@@ -1,3 +1,5 @@
+// ignore_for_file: deprecated_member_use
+
 import 'package:flutter/material.dart';
 import 'call_screen.dart';
 import '../services/signalling.service.dart';

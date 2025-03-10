@@ -1,3 +1,6 @@
+// ignore_for_file: prefer_const_constructors, avoid_print, deprecated_member_use
+
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../services/signalling.service.dart';
@@ -56,6 +59,32 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  // Hàm trợ giúp: Kiểm tra candidate có phải IPv4 hay không
+  bool _isIPv4(String candidate) {
+    RegExp ipv4Regex = RegExp(r'\b(?:\d{1,3}\.){3}\d{1,3}\b');
+    return ipv4Regex.hasMatch(candidate);
+  }
+
+  // Hàm lọc SDP: chỉ giữ lại những dòng chứa candidate có địa chỉ IPv4
+  Future<RTCSessionDescription> _filterSDPForIPv4(
+      RTCSessionDescription sdpDescription) async {
+    String sdp = sdpDescription.sdp!;
+    List<String> lines = sdp.split('\n');
+    List<String> filteredLines = [];
+    for (String line in lines) {
+      if (line.startsWith('a=candidate:')) {
+        // Giữ lại dòng candidate nếu chứa địa chỉ IPv4
+        if (_isIPv4(line)) {
+          filteredLines.add(line);
+        }
+      } else {
+        filteredLines.add(line);
+      }
+    }
+    String filteredSdp = filteredLines.join('\n');
+    return RTCSessionDescription(filteredSdp, sdpDescription.type);
+  }
+
   _setupPeerConnection() async {
     // create peer connection
     _rtcPeerConnection = await createPeerConnection({
@@ -68,12 +97,12 @@ class _CallScreenState extends State<CallScreen> {
           'username': 'demo',
           'credential': "demo4924",
         },
-      ]
+      ],
     });
 
     // listen for remotePeer mediaTrack event
     _rtcPeerConnection!.onTrack = (event) {
-      _remoteRTCVideoRenderer.srcObject = event.streams[0];
+      _remoteRTCVideoRenderer.srcObject = event.streams.first;
       setState(() {});
     };
 
@@ -94,99 +123,104 @@ class _CallScreenState extends State<CallScreen> {
     _localRTCVideoRenderer.srcObject = _localStream;
     setState(() {});
 
-    // for Incoming call
+    // For incoming call
     if (widget.offer != null) {
-      // listen for Remote IceCandidate
+      // Lắng nghe ICE candidate từ remote (với filter)
       socket!.on("IceCandidate", (data) {
         String candidate = data["iceCandidate"]["candidate"];
+        // Lọc candidate: chỉ xử lý nếu candidate chứa địa chỉ IPv4
+        if (!_isIPv4(candidate)) {
+          print("Bỏ candidate IPv6: $candidate");
+          return;
+        }
         String sdpMid = data["iceCandidate"]["id"];
         int sdpMLineIndex = data["iceCandidate"]["label"];
 
-        // add iceCandidate
         _rtcPeerConnection!.addCandidate(RTCIceCandidate(
           candidate,
           sdpMid,
           sdpMLineIndex,
         ));
-
-        print("IceCandidate: $candidate");
+        print("IceCandidate nhận: $candidate");
         setState(() {});
-        print("sdpMid: $sdpMid");
-
-        print("sdpMLineIndex: $sdpMLineIndex");
       });
 
       print("Offer: ${widget.offer}");
 
-      // create SDP answer
+      // Tạo một đối tượng RTCSessionDescription từ offer nhận được
+      RTCSessionDescription remoteOffer =
+          RTCSessionDescription(widget.offer["sdp"], widget.offer["type"]);
 
-      // set SDP offer as remoteDescription for peerConnection
-      await _rtcPeerConnection!.setRemoteDescription(
-        RTCSessionDescription(widget.offer["sdp"], widget.offer["type"]),
-      );
+      // Lọc SDP của offer, chỉ giữ lại các candidate IPv4
+      RTCSessionDescription filteredRemoteOffer =
+          await _filterSDPForIPv4(remoteOffer);
 
-      // create SDP answer
+      // Set remote description với SDP đã được lọc
+      await _rtcPeerConnection!.setRemoteDescription(filteredRemoteOffer);
+
+      // Tạo SDP answer
       RTCSessionDescription answer = await _rtcPeerConnection!.createAnswer();
 
-      // set SDP answer as localDescription for peerConnection
-      _rtcPeerConnection!.setLocalDescription(answer);
+      // Lọc SDP answer: chỉ giữ lại các candidate IPv4
+      RTCSessionDescription filteredAnswer = await _filterSDPForIPv4(answer);
 
-      // send SDP answer to remote peer over signalling
+      // Set local description với SDP answer đã được lọc
+      await _rtcPeerConnection!.setLocalDescription(filteredAnswer);
+
+      // Gửi SDP answer về remote qua signalling
       socket!.emit("answerCall", {
         "callerId": widget.callerId,
-        "sdpAnswer": answer.toMap(),
+        "sdpAnswer": filteredAnswer.toMap(),
       });
     }
-    // for Outgoing Call
+    // For Outgoing Call
     else {
-      // listen for local iceCandidate and add it to the list of IceCandidate
+      // Lắng nghe ICE candidate local: chỉ thêm candidate nếu candidate là IPv4
       _rtcPeerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+        if (!_isIPv4(candidate.candidate ?? "")) {
+          print("Bỏ candidate IPv6 local: ${candidate.candidate}");
+          return;
+        }
         rtcIceCadidates.add(candidate);
-        print("📡 ICE Candidate: ${candidate.candidate}");
       };
-      _rtcPeerConnection!.onConnectionState = (RTCPeerConnectionState state) {
-        print("🔄 Trạng thái kết nối: $state");
-      };
-      _rtcPeerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
-        print("🌍 Trạng thái ICE: $state");
-      };
-      // when call is accepted by remote peer
-      socket!.on("callAnswered", (data) async {
-        // set SDP answer as remoteDescription for peerConnection
-        await _rtcPeerConnection!.setRemoteDescription(
-          RTCSessionDescription(
-            data["sdpAnswer"]["sdp"],
-            data["sdpAnswer"]["type"],
-          ),
-        );
 
-        // send iceCandidate generated to remote peer over signalling
+      // Khi call được remote chấp nhận
+      socket!.on("callAnswered", (data) async {
+        RTCSessionDescription remoteSdp = RTCSessionDescription(
+            data["sdpAnswer"]["sdp"], data["sdpAnswer"]["type"]);
+
+        RTCSessionDescription filteredSdp = await _filterSDPForIPv4(remoteSdp);
+
+        await _rtcPeerConnection!.setRemoteDescription(filteredSdp);
+        // Gửi các ICE candidate đã thu thập (chỉ candidate IPv4)
         for (RTCIceCandidate candidate in rtcIceCadidates) {
           socket!.emit("IceCandidate", {
             "calleeId": widget.calleeId,
             "iceCandidate": {
               "id": candidate.sdpMid,
               "label": candidate.sdpMLineIndex,
-              "candidate": candidate.candidate
+              "candidate": candidate.candidate,
             }
           });
-
-          print("IceCandidate 2: ${candidate.candidate}");
-          print("sdpMid 2: ${candidate.sdpMid}");
-          print("sdpMLineIndex 2: ${candidate.sdpMLineIndex}");
+          print("Gửi ICE Candidate: ${candidate.candidate}");
+          print("sdpMid: ${candidate.sdpMid}");
+          print("sdpMLineIndex: ${candidate.sdpMLineIndex}");
         }
       });
 
-      // create SDP Offer
+      // Tạo SDP Offer
       RTCSessionDescription offer = await _rtcPeerConnection!.createOffer();
 
-      // set SDP offer as localDescription for peerConnection
-      await _rtcPeerConnection!.setLocalDescription(offer);
+      // Lọc SDP offer: chỉ giữ candidate IPv4
+      RTCSessionDescription filteredOffer = await _filterSDPForIPv4(offer);
 
-      // make a call to remote peer over signalling
+      // Set SDP offer local
+      await _rtcPeerConnection!.setLocalDescription(filteredOffer);
+
+      // Gửi offer đến remote qua signalling
       socket!.emit('makeCall', {
         "calleeId": widget.calleeId,
-        "sdpOffer": offer.toMap(),
+        "sdpOffer": filteredOffer.toMap(),
       });
     }
   }
@@ -196,9 +230,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   _toggleMic() {
-    // change status
     isAudioOn = !isAudioOn;
-    // enable or disable audio track
     _localStream?.getAudioTracks().forEach((track) {
       track.enabled = isAudioOn;
     });
@@ -206,10 +238,7 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   _toggleCamera() {
-    // change status
     isVideoOn = !isVideoOn;
-
-    // enable or disable video track
     _localStream?.getVideoTracks().forEach((track) {
       track.enabled = isVideoOn;
     });
@@ -217,12 +246,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   _switchCamera() {
-    // change status
     isFrontCameraSelected = !isFrontCameraSelected;
-
-    // switch camera
     _localStream?.getVideoTracks().forEach((track) {
-      // ignore: deprecated_member_use
       track.switchCamera();
     });
     setState(() {});
@@ -300,3 +325,4 @@ class _CallScreenState extends State<CallScreen> {
     super.dispose();
   }
 }
+      
