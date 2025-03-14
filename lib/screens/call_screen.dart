@@ -90,12 +90,12 @@ class _CallScreenState extends State<CallScreen> {
     _rtcPeerConnection = await createPeerConnection({
       'iceServers': [
         {
-          'urls': "stun:demo.espitek.com:3478",
+          'urls': "",
         },
         {
-          'urls': 'turn:demo.espitek.com:3478',
-          'username': 'demo',
-          'credential': "demo4924",
+          'urls': '',
+          'username': '',
+          'credential': "",
         },
       ],
     });
